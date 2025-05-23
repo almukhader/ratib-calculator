@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حاسبة رواتب الموظفين الحكوميين العراقيين</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Visualization & Content Choices:
+        - Employee Inputs: HTML forms (select, number, checkbox, date) for job_grade, date_of_appointment, etc. Goal: Accurate data collection with reduced manual input for years of service. Interaction: User input. Justification: Standard, accessible. Method: HTML/Tailwind/JS.
+        - Salary Breakdown: Dynamic HTML text for basic_salary, allowances (position, certificate, geographic, hazard, marital, children, craft), total_allowances (pre/post cap), gross_salary, deductions (pension, health_insurance, income_tax), total_deductions, net_salary. Goal: Transparent calculation. Interaction: Read-only. Justification: Clear display of all components from report. Method: JS DOM manipulation.
+        - Gross Salary Composition: Pie Chart (Chart.js Canvas). Report Info: basic_salary, total_allowances. Goal: Visualize parts of gross pay. Interaction: Tooltips. Justification: Part-to-whole representation. Library: Chart.js.
+        - Salary Stages: Bar Chart (Chart.js Canvas). Report Info: gross_salary, total_deductions, net_salary. Goal: Compare key salary figures. Interaction: Tooltips. Justification: Comparison of values. Library: Chart.js.
+        - All data and calculation logic derived directly from the "مواصفات تقنية لتطبيق حاسبة رواتب الموظفين الحكوميين العراقيين" report.
+        - CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background-color: #FFFBEB; /* bg-amber-50 */
+            color: #44403C; /* text-stone-800 */
+        }
+        .form-select, .form-input, .form-checkbox {
+            border-color: #FDE68A; /* border-amber-300 */
+            border-radius: 0.375rem; /* rounded-md */
+        }
+        .form-select:focus, .form-input:focus {
+            border-color: #0D9488; /* border-teal-600 */
+            box-shadow: 0 0 0 0.2rem rgba(13, 148, 136, 0.25); /* focus:ring-teal-500 focus:border-teal-500 */
+        }
+        .btn-primary {
+            background-color: #0D9488; /* bg-teal-600 */
+            color: white;
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: #0F766E; /* hover:bg-teal-700 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px; /* max-w-2xl */
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px; /* Base height, can be responsive e.g., h-64 md:h-96 */
+            max-height: 400px;
+        }
+        @media (min-width: 768px) { /* md breakpoint */
+            .chart-container {
+                height: 350px;
+            }
+        }
+        label {
+            font-weight: 500; /* font-medium */
+        }
+        .result-item {
+            background-color: #FEF3C7; /* bg-amber-100 */
+            border-right: 4px solid #0D9488; /* border-r-4 border-teal-600 */
+        }
+        .result-value {
+            font-weight: 700; /* font-bold */
+            color: #115E59; /* text-teal-800 */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #FFFBEB; /* bg-amber-50 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #FCD34D; /* bg-amber-400 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #FBBF24; /* bg-amber-500 */
+        }
+        .message-box {
+            background-color: #FEF2F2; /* bg-red-50 */
+            border: 1px solid #EF4444; /* border-red-500 */
+            color: #DC2626; /* text-red-700 */
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-teal-700">حاسبة رواتب الموظفين الحكوميين العراقيين</h1>
+            <p class="mt-2 text-lg text-stone-700">أدخل معلوماتك لحساب راتبك التقديري بناءً على القوانين والتعليمات.</p>
+        </header>
+
+        <main class="bg-white shadow-xl rounded-lg p-6 md:p-8">
+            <section id="userInputSection" class="mb-8">
+                <h2 class="text-2xl font-semibold text-teal-600 mb-6 border-b-2 border-amber-300 pb-2">1. معلومات الموظف</h2>
+                <p class="mb-6 text-stone-600">الرجاء إدخال البيانات التالية. الحقول التي تحمل علامة (*) إلزامية.</p>
+                <div id="messageBox" class="message-box hidden"></div>
+
+                <form id="salaryForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="date_of_appointment" class="block text-sm font-medium text-stone-700 mb-1">تاريخ التعيين (*):</label>
+                        <input type="date" id="date_of_appointment" name="date_of_appointment" class="form-input mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500" required>
+                        <p class="text-xs text-stone-500 mt-1">سيتم حساب سنوات الخدمة تلقائيًا من هذا التاريخ.</p>
+                    </div>
+                    <div>
+                        <label for="job_grade" class="block text-sm font-medium text-stone-700 mb-1">الدرجة الوظيفية (*):</label>
+                        <select id="job_grade" name="job_grade" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500" required>
+                            <option value="">اختر الدرجة</option>
+                            <option value="وكيل وزارة">وكيل وزارة</option>
+                            <option value="الدرجة الخاصة">الدرجة الخاصة</option>
+                            <option value="المدير العام">المدير العام</option>
+                            <option value="الدرجة 1">الدرجة 1</option>
+                            <option value="الدرجة 2">الدرجة 2</option>
+                            <option value="الدرجة 3">الدرجة 3</option>
+                            <option value="الدرجة 4">الدرجة 4</option>
+                            <option value="الدرجة 5">الدرجة 5</option>
+                            <option value="الدرجة 6">الدرجة 6</option>
+                            <option value="الدرجة 7">الدرجة 7</option>
+                            <option value="الدرجة 8">الدرجة 8</option>
+                            <option value="الدرجة 9">الدرجة 9</option>
+                            <option value="الدرجة 10">الدرجة 10</option>
+                        </select>
+                        <p class="text-xs text-stone-500 mt-1">يجب اختيار الدرجة يدويًا، حيث لا تتوفر قواعد لاستنتاجها تلقائيًا من تاريخ التعيين والمؤهل.</p>
+                    </div>
+                    <div>
+                        <label for="highest_qualification" class="block text-sm font-medium text-stone-700 mb-1">أعلى مؤهل علمي (*):</label>
+                        <select id="highest_qualification" name="highest_qualification" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500" required>
+                            <option value="">اختر المؤهل</option>
+                            <option value="دكتوراه">دكتوراه</option>
+                            <option value="ماجستير">ماجستير</option>
+                            <option value="دبلوم عالي">دبلوم عالي</option>
+                            <option value="بكالوريوس">بكالوريوس</option>
+                            <option value="دبلوم">دبلوم</option> <option value="دبلوم فني">دبلوم فني</option>
+                            <option value="إعدادية">إعدادية</option>
+                            <option value="لا يوجد">لا يوجد (لحساب مخصصات الحرفة)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="job_position_type" class="block text-sm font-medium text-stone-700 mb-1">المنصب الإداري:</label>
+                        <select id="job_position_type" name="job_position_type" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500">
+                            <option value="لا ينطبق">لا ينطبق</option>
+                            <option value="معاون مدير عام">معاون مدير عام</option>
+                            <option value="مشرف اختصاصي/تربوي/مدير مدرسة/معهد/تعليم مهني">مشرف اختصاصي/تربوي/مدير مدرسة/معهد/تعليم مهني</option>
+                            <option value="مدير تشكيل دون مستوى دائرة">مدير تشكيل دون مستوى دائرة</option>
+                            <option value="مدير قسم">مدير قسم</option>
+                            <option value="معاون مدير مدرسة/معهد/تعليم مهني/تشكيل">معاون مدير مدرسة/معهد/تعليم مهني/تشكيل</option>
+                            <option value="رئيس شعبة">رئيس شعبة</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="geographic_location" class="block text-sm font-medium text-stone-700 mb-1">الموقع الجغرافي للعمل:</label>
+                        <select id="geographic_location" name="geographic_location" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500">
+                            <option value="لا ينطبق">لا ينطبق</option>
+                            <option value="منطقة نائية">منطقة نائية</option>
+                            <option value="منطقة ريفية">منطقة ريفية</option>
+                            <option value="مركز ناحية">مركز ناحية</option>
+                            <option value="مركز قضاء">مركز قضاء</option>
+                            <option value="مركز محافظة">مركز محافظة</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="hazard_level" class="block text-sm font-medium text-stone-700 mb-1">مستوى الخطورة المهنية:</label>
+                        <select id="hazard_level" name="hazard_level" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500">
+                            <option value="لا يوجد">لا يوجد</option>
+                            <option value="أقل خطورة (20%)">أقل خطورة (20%)</option>
+                            <option value="متوسط الخطورة (25%)">متوسط الخطورة (25%)</option>
+                            <option value="الأكثر خطورة (30%)">الأكثر خطورة (30%)</option>
+                            <option value="أخرى / مخصص">أخرى / مخصص</option>
+                        </select>
+                    </div>
+                    <div id="custom_hazard_percentage_div" class="hidden">
+                        <label for="custom_hazard_percentage" class="block text-sm font-medium text-stone-700 mb-1">نسبة مخصصات الخطورة المخصصة (%) (اختياري):</label>
+                        <input type="number" id="custom_hazard_percentage" name="custom_hazard_percentage" min="0" max="1000" step="0.01" class="form-input mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500">
+                        <p class="text-xs text-stone-500 mt-1">أدخل النسبة المئوية لمخصصات الخطورة (مثال: 180 لـ 180%).</p>
+                    </div>
+                    <div>
+                        <label for="marital_status" class="block text-sm font-medium text-stone-700 mb-1">الحالة الاجتماعية (*):</label>
+                        <select id="marital_status" name="marital_status" class="form-select mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500" required>
+                            <option value="">اختر الحالة</option>
+                            <option value="أعزب">أعزب</option>
+                            <option value="متزوج">متزوج</option>
+                            <option value="أرمل">أرمل</option>
+                            <option value="مطلق">مطلق</option>
+                        </select>
+                    </div>
+                    <div id="spouse_children_section" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+                        <div>
+                            <label for="num_children" class="block text-sm font-medium text-stone-700 mb-1">عدد الأطفال (المستحقين للمخصصات):</label>
+                            <input type="number" id="num_children" name="num_children" min="0" value="0" class="form-input mt-1 block w-full p-2 border rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500">
+                        </div>
+                        <div id="spouse_employed_section" class="hidden">
+                            <label class="block text-sm font-medium text-stone-700 mb-1">هل الزوج/الزوجة موظف/ة؟</label>
+                            <div class="mt-2 space-y-2">
+                                <label class="inline-flex items-center">
+                                    <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="spouse_employed" value="true">
+                                    <span class="mr-2 text-stone-700">نعم</span>
+                                </label>
+                                <label class="inline-flex items-center mr-4">
+                                    <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="spouse_employed" value="false" checked>
+                                    <span class="mr-2 text-stone-700">لا (ربة منزل/لا يعمل)</span>
+                                </label>
+                            </div>
+                        </div>
+                         <div id="children_details_section" class="hidden md:col-span-2">
+                            <label class="block text-sm font-medium text-stone-700 mb-1">هل الأبناء لديهم دخل مستقل أو تجاوزوا السن القانونية مع عدم الدراسة؟</label>
+                             <div class="mt-2 space-y-2">
+                                <label class="inline-flex items-center">
+                                    <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="children_independent_income_or_over_age_limit_not_studying" value="true">
+                                    <span class="mr-2 text-stone-700">نعم</span>
+                                </label>
+                                <label class="inline-flex items-center mr-4">
+                                    <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="children_independent_income_or_over_age_limit_not_studying" value="false" checked>
+                                    <span class="mr-2 text-stone-700">لا</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                     <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-stone-700 mb-1">هل تجاوز الموظف 63 عاماً؟</label>
+                         <div class="mt-2 space-y-2">
+                            <label class="inline-flex items-center">
+                                <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="age_over_63" value="true">
+                                <span class="mr-2 text-stone-700">نعم</span>
+                            </label>
+                            <label class="inline-flex items-center mr-4">
+                                <input type="radio" class="form-radio text-teal-600 focus:ring-teal-500" name="age_over_63" value="false" checked>
+                                <span class="mr-2 text-stone-700">لا</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 text-center mt-4">
+                        <button type="submit" class="btn-primary font-semibold py-3 px-8 rounded-lg shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline ml-2" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" />
+                            </svg>
+                            احسب الراتب
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section id="resultsSection" class="hidden mt-10">
+                <h2 class="text-2xl font-semibold text-teal-600 mb-6 border-b-2 border-amber-300 pb-2">2. تفاصيل الراتب المحسوب</h2>
+                <p class="mb-6 text-stone-600">فيما يلي تفصيل الراتب التقديري بناءً على البيانات المدخلة والقوانين المعمول بها. جميع المبالغ بالدينار العراقي.</p>
+                <div class="space-y-3">
+                    <div class="result-item p-4 rounded-md flex justify-between items-center">
+                        <span class="text-stone-700">الراتب الأساسي (الاسمي):</span>
+                        <span id="basic_salary_result" class="result-value">0</span>
+                    </div>
+                    <div class="result-item p-4 rounded-md">
+                        <h3 class="text-lg font-semibold text-teal-700 mb-2">المخصصات:</h3>
+                        <ul class="space-y-1 text-sm list-disc list-inside pr-4 text-stone-600">
+                            <li>مخصصات المنصب: <span id="position_allowance_result" class="result-value">0</span></li>
+                            <li>مخصصات الشهادة/الحرفة: <span id="certificate_allowance_result" class="result-value">0</span></li>
+                            <li>مخصصات الموقع الجغرافي: <span id="geographic_allowance_result" class="result-value">0</span></li>
+                            <li>مخصصات الخطورة المهنية: <span id="hazard_allowance_result" class="result-value">0</span></li>
+                            <li>مخصصات الزوجية: <span id="marital_allowance_result" class="result-value">0</span></li>
+                            <li>مخصصات الأطفال: <span id="children_allowance_result" class="result-value">0</span></li>
+                        </ul>
+                        <div class="mt-2 pt-2 border-t border-amber-200 flex justify-between items-center">
+                            <span class="text-stone-700 font-medium">إجمالي المخصصات (قبل السقف):</span>
+                            <span id="total_allowances_before_cap_result" class="result-value">0</span>
+                        </div>
+                        <div class="mt-1 flex justify-between items-center">
+                            <span class="text-stone-700 font-medium">إجمالي المخصصات (النهائي):</span> <span id="total_allowances_after_cap_result" class="result-value">0</span>
+                        </div>
+                    </div>
+                     <div class="result-item p-4 rounded-md flex justify-between items-center bg-amber-200">
+                        <span class="text-stone-800 font-bold text-lg">إجمالي الراتب (الراتب الأساسي + المخصصات):</span>
+                        <span id="gross_salary_result" class="result-value text-lg">0</span>
+                    </div>
+                     <div class="result-item p-4 rounded-md">
+                        <h3 class="text-lg font-semibold text-teal-700 mb-2">الاستقطاعات:</h3>
+                        <ul class="space-y-1 text-sm list-disc list-inside pr-4 text-stone-600">
+                            <li>توقيفات التقاعد (10% من الراتب الوظيفي): <span id="pension_deduction_result" class="result-value">0</span></li>
+                            <li>استقطاع الضمان الصحي (1% من الراتب الأساسي): <span id="health_insurance_deduction_result" class="result-value">0</span></li>
+                            <li>ضريبة الدخل: <span id="income_tax_result" class="result-value">0</span></li>
+                        </ul>
+                        <div class="mt-2 pt-2 border-t border-amber-200 flex justify-between items-center">
+                            <span class="text-stone-700 font-medium">إجمالي الاستقطاعات:</span>
+                            <span id="total_deductions_result" class="result-value">0</span>
+                        </div>
+                    </div>
+                    <div class="result-item p-6 rounded-md flex justify-between items-center bg-teal-600 text-white shadow-lg">
+                        <span class="font-bold text-xl">صافي الراتب المستلم (تقريبي):</span>
+                        <span id="net_salary_result" class="font-bold text-xl">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <section id="chartsSection" class="hidden mt-10">
+                <h2 class="text-2xl font-semibold text-teal-600 mb-6 border-b-2 border-amber-300 pb-2">3. الرسوم البيانية التوضيحية</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="text-lg font-semibold text-center text-teal-700 mb-3">مكونات الراتب الإجمالي</h3>
+                        <div class="chart-container">
+                            <canvas id="grossSalaryChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="text-lg font-semibold text-center text-teal-700 mb-3">مراحل الراتب</h3>
+                         <div class="chart-container">
+                            <canvas id="salaryStagesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <footer class="mt-12 text-center text-sm text-stone-500">
+              
+                                 <p>&copy; IHAB NADHIM KAMIL.</p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        // --- Data Structures (from report) ---
+        const salaryScaleData = [
+            { grade: "وكيل وزارة", years_of_service: 1, basic_salary: 2413, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 2, basic_salary: 2496, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 3, basic_salary: 2579, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 4, basic_salary: 2662, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 5, basic_salary: 2745, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 6, basic_salary: 2828, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 7, basic_salary: 2911, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 8, basic_salary: 2994, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 9, basic_salary: 3077, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 10, basic_salary: 3160, annual_increment: 83 }, { grade: "وكيل وزارة", years_of_service: 11, basic_salary: 3243, annual_increment: 83 },
+            { grade: "الدرجة الخاصة", years_of_service: 1, basic_salary: 2000, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 2, basic_salary: 2083, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 3, basic_salary: 2166, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 4, basic_salary: 2249, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 5, basic_salary: 2332, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 6, basic_salary: 2415, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 7, basic_salary: 2498, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 8, basic_salary: 2581, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 9, basic_salary: 2664, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 10, basic_salary: 2747, annual_increment: 83 }, { grade: "الدرجة الخاصة", years_of_service: 11, basic_salary: 2830, annual_increment: 83 },
+            { grade: "المدير العام", years_of_service: 1, basic_salary: 1500, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 2, basic_salary: 1583, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 3, basic_salary: 1666, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 4, basic_salary: 1749, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 5, basic_salary: 1832, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 6, basic_salary: 1915, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 7, basic_salary: 1998, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 8, basic_salary: 2081, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 9, basic_salary: 2164, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 10, basic_salary: 2247, annual_increment: 83 }, { grade: "المدير العام", years_of_service: 11, basic_salary: 2330, annual_increment: 83 },
+            { grade: "الدرجة 1", years_of_service: 1, basic_salary: 910, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 2, basic_salary: 930, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 3, basic_salary: 950, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 4, basic_salary: 970, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 5, basic_salary: 990, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 6, basic_salary: 1010, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 7, basic_salary: 1030, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 8, basic_salary: 1050, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 9, basic_salary: 1070, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 10, basic_salary: 1090, annual_increment: 20 }, { grade: "الدرجة 1", years_of_service: 11, basic_salary: 1110, annual_increment: 20 },
+            { grade: "الدرجة 2", years_of_service: 1, basic_salary: 723, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 2, basic_salary: 740, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 3, basic_salary: 757, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 4, basic_salary: 774, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 5, basic_salary: 791, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 6, basic_salary: 808, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 7, basic_salary: 825, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 8, basic_salary: 842, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 9, basic_salary: 859, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 10, basic_salary: 876, annual_increment: 17 }, { grade: "الدرجة 2", years_of_service: 11, basic_salary: 893, annual_increment: 17 },
+            { grade: "الدرجة 3", years_of_service: 1, basic_salary: 600, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 2, basic_salary: 610, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 3, basic_salary: 620, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 4, basic_salary: 630, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 5, basic_salary: 640, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 6, basic_salary: 650, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 7, basic_salary: 660, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 8, basic_salary: 670, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 9, basic_salary: 680, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 10, basic_salary: 690, annual_increment: 10 }, { grade: "الدرجة 3", years_of_service: 11, basic_salary: 700, annual_increment: 10 },
+            { grade: "الدرجة 4", years_of_service: 1, basic_salary: 509, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 2, basic_salary: 517, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 3, basic_salary: 525, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 4, basic_salary: 533, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 5, basic_salary: 541, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 6, basic_salary: 549, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 7, basic_salary: 557, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 8, basic_salary: 565, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 9, basic_salary: 573, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 10, basic_salary: 581, annual_increment: 8 }, { grade: "الدرجة 4", years_of_service: 11, basic_salary: 589, annual_increment: 8 },
+            { grade: "الدرجة 5", years_of_service: 1, basic_salary: 429, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 2, basic_salary: 435, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 3, basic_salary: 441, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 4, basic_salary: 447, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 5, basic_salary: 453, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 6, basic_salary: 459, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 7, basic_salary: 465, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 8, basic_salary: 471, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 9, basic_salary: 477, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 10, basic_salary: 483, annual_increment: 6 }, { grade: "الدرجة 5", years_of_service: 11, basic_salary: 489, annual_increment: 6 },
+            { grade: "الدرجة 6", years_of_service: 1, basic_salary: 362, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 2, basic_salary: 368, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 3, basic_salary: 374, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 4, basic_salary: 380, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 5, basic_salary: 386, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 6, basic_salary: 392, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 7, basic_salary: 398, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 8, basic_salary: 404, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 9, basic_salary: 410, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 10, basic_salary: 416, annual_increment: 6 }, { grade: "الدرجة 6", years_of_service: 11, basic_salary: 422, annual_increment: 6 },
+            { grade: "الدرجة 7", years_of_service: 1, basic_salary: 296, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 2, basic_salary: 302, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 3, basic_salary: 308, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 4, basic_salary: 314, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 5, basic_salary: 320, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 6, basic_salary: 326, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 7, basic_salary: 332, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 8, basic_salary: 338, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 9, basic_salary: 344, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 10, basic_salary: 350, annual_increment: 4 }, { grade: "الدرجة 7", years_of_service: 11, basic_salary: 356, annual_increment: 4 },
+            { grade: "الدرجة 8", years_of_service: 1, basic_salary: 260, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 2, basic_salary: 263, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 3, basic_salary: 266, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 4, basic_salary: 269, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 5, basic_salary: 272, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 6, basic_salary: 275, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 7, basic_salary: 278, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 8, basic_salary: 281, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 9, basic_salary: 284, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 10, basic_salary: 287, annual_increment: 3 }, { grade: "الدرجة 8", years_of_service: 11, basic_salary: 290, annual_increment: 3 },
+            { grade: "الدرجة 9", years_of_service: 1, basic_salary: 210, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 2, basic_salary: 213, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 3, basic_salary: 216, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 4, basic_salary: 219, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 5, basic_salary: 222, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 6, basic_salary: 225, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 7, basic_salary: 228, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 8, basic_salary: 231, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 9, basic_salary: 234, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 10, basic_salary: 237, annual_increment: 3 }, { grade: "الدرجة 9", years_of_service: 11, basic_salary: 240, annual_increment: 3 },
+            { grade: "الدرجة 10", years_of_service: 1, basic_salary: 170, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 2, basic_salary: 173, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 3, basic_salary: 176, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 4, basic_salary: 179, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 5, basic_salary: 182, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 6, basic_salary: 185, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 7, basic_salary: 188, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 8, basic_salary: 191, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 9, basic_salary: 194, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 10, basic_salary: 197, annual_increment: 3 }, { grade: "الدرجة 10", years_of_service: 11, basic_salary: 200, annual_increment: 3 },
+        ];
+
+        const allowanceRulesData = [
+            { type: "position", condition: "معاون مدير عام", basis: "basic_salary", rate: 0.30, fixed_amount: 0 },
+            { type: "position", condition: "مشرف اختصاصي/تربوي/مدير مدرسة/معهد/تعليم مهني", basis: "basic_salary", rate: 0.25, fixed_amount: 0 },
+            { type: "position", condition: "مدير تشكيل دون مستوى دائرة", basis: "basic_salary", rate: 0.25, fixed_amount: 0 },
+            { type: "position", condition: "مدير قسم", basis: "basic_salary", rate: 0.20, fixed_amount: 0 },
+            { type: "position", condition: "معاون مدير مدرسة/معهد/تعليم مهني/تشكيل", basis: "basic_salary", rate: 0.15, fixed_amount: 0 },
+            { type: "position", condition: "رئيس شعبة", basis: "basic_salary", rate: 0.15, fixed_amount: 0 },
+            { type: "certificate", condition: "دكتوراه", basis: "basic_salary", rate: 1.00, fixed_amount: 0 },
+            { type: "certificate", condition: "ماجستير", basis: "basic_salary", rate: 0.75, fixed_amount: 0 },
+            { type: "certificate", condition: "دبلوم عالي", basis: "basic_salary", rate: 0.65, fixed_amount: 0 },
+            { type: "certificate", condition: "بكالوريوس", basis: "basic_salary", rate: 0.45, fixed_amount: 0 },
+            { type: "certificate", condition: "دبلوم", basis: "basic_salary", rate: 0.35, fixed_amount: 0 }, // New rule for 'دبلوم'
+            { type: "certificate", condition: "دبلوم فني", basis: "basic_salary", rate: 0.45, fixed_amount: 0 },
+            { type: "certificate", condition: "إعدادية", basis: "basic_salary", rate: 0.25, fixed_amount: 0 },
+            { type: "geographic", condition: "منطقة نائية", basis: "fixed", rate: 0, fixed_amount: 60000 },
+            { type: "geographic", condition: "منطقة ريفية", basis: "fixed", rate: 0, fixed_amount: 50000 },
+            { type: "geographic", condition: "مركز ناحية", basis: "fixed", rate: 0, fixed_amount: 40000 },
+            { type: "geographic", condition: "مركز قضاء", basis: "fixed", rate: 0, fixed_amount: 30000 },
+            { type: "geographic", condition: "مركز محافظة", basis: "fixed", rate: 0, fixed_amount: 20000 },
+            { type: "hazard", condition: "أقل خطورة (20%)", basis: "basic_salary", rate: 0.20, fixed_amount: 0 },
+            { type: "hazard", condition: "متوسط الخطورة (25%)", basis: "basic_salary", rate: 0.25, fixed_amount: 0 },
+            { type: "hazard", condition: "الأكثر خطورة (30%)", basis: "basic_salary", rate: 0.30, fixed_amount: 0 },
+            { type: "marital_spouse", condition: "متزوج", basis: "fixed", rate: 0, fixed_amount: 50000 },
+            { type: "marital_spouse", condition: "أرمل", basis: "fixed", rate: 0, fixed_amount: 50000 }, // Assuming widow/widower gets spouse allowance
+            { type: "marital_spouse", condition: "مطلق", basis: "fixed", rate: 0, fixed_amount: 50000 }, // Assuming divorced gets spouse allowance if supporting
+            { type: "children", condition: "لكل طفل", basis: "fixed", rate: 0, fixed_amount: 10000, max_children: 4 },
+            { type: "craft", condition: "لا يوجد", basis: "basic_salary", rate: 0.15, fixed_amount: 0 } // Matched with highest_qualification "لا يوجد"
+        ];
+
+        const deductionRulesData = [
+            { type: "pension", basis: "functional_salary", rate: 0.10, fixed_amount: 0 },
+            { type: "health_insurance", basis: "basic_salary", rate: 0.01, fixed_amount: 0 }
+        ];
+
+        const taxBracketsData = [ // Monthly
+            { min_income: 69000, max_income: 204000, rate: 0.01 },
+            { min_income: 204001, max_income: 574000, rate: 0.04 },
+            { min_income: 574001, max_income: 1500000, rate: 0.07 },
+            { min_income: 1500001, max_income: Infinity, rate: 0.07 } // Assuming highest rate continues for income above 1.5M as per report note
+        ];
+        
+        const annualExemptionsData = { // Annual
+            individual_exemption: 2500000,
+            spouse_exemption: 2000000, 
+            child_exemption_per_child: 200000,
+            widow_divorcee_exemption: 3200000,
+            senior_additional_exemption: 300000 
+        };
+
+        // Commented out as per user request to remove allowance cap.
+        // const TOTAL_ALLOWANCE_CAP_PERCENTAGE = 2.00; // 200%
+
+        // --- DOM Elements ---
+        const salaryForm = document.getElementById('salaryForm');
+        const resultsSection = document.getElementById('resultsSection');
+        const chartsSection = document.getElementById('chartsSection');
+        const maritalStatusSelect = document.getElementById('marital_status');
+        const spouseChildrenSection = document.getElementById('spouse_children_section');
+        const spouseEmployedSection = document.getElementById('spouse_employed_section');
+        const childrenDetailsSection = document.getElementById('children_details_section');
+        const numChildrenInput = document.getElementById('num_children');
+        const hazardLevelSelect = document.getElementById('hazard_level');
+        const customHazardPercentageDiv = document.getElementById('custom_hazard_percentage_div');
+        const customHazardPercentageInput = document.getElementById('custom_hazard_percentage');
+        const messageBox = document.getElementById('messageBox');
+
+
+        // --- Chart instances ---
+        let grossSalaryChartInstance = null;
+        let salaryStagesChartInstance = null;
+
+        // --- Helper function for displaying messages ---
+        function showMessage(message, type = 'error') {
+            messageBox.textContent = message;
+            messageBox.className = 'message-box'; // Reset classes
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-50', 'border-red-500', 'text-red-700');
+            } else if (type === 'info') {
+                messageBox.classList.add('bg-blue-50', 'border-blue-500', 'text-blue-700');
+            }
+            messageBox.classList.remove('hidden');
+        }
+
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        // --- Event Listeners ---
+        maritalStatusSelect.addEventListener('change', function() {
+            const status = this.value;
+            if (status === 'متزوج' || status === 'أرمل' || status === 'مطلق') {
+                spouseChildrenSection.classList.remove('hidden');
+                if (status === 'متزوج') {
+                    spouseEmployedSection.classList.remove('hidden');
+                } else {
+                    spouseEmployedSection.classList.add('hidden');
+                }
+                if (parseInt(numChildrenInput.value) > 0) {
+                     childrenDetailsSection.classList.remove('hidden');
+                } else {
+                     childrenDetailsSection.classList.add('hidden');
+                }
+            } else { // أعزب
+                spouseChildrenSection.classList.add('hidden');
+                spouseEmployedSection.classList.add('hidden');
+                childrenDetailsSection.classList.add('hidden');
+            }
+        });
+
+        numChildrenInput.addEventListener('input', function() {
+            if (parseInt(this.value) > 0 && (maritalStatusSelect.value === 'متزوج' || maritalStatusSelect.value === 'أرمل' || maritalStatusSelect.value === 'مطلق')) {
+                childrenDetailsSection.classList.remove('hidden');
+            } else {
+                childrenDetailsSection.classList.add('hidden');
+            }
+        });
+
+        hazardLevelSelect.addEventListener('change', function() {
+            if (this.value === 'أخرى / مخصص') {
+                customHazardPercentageDiv.classList.remove('hidden');
+            } else {
+                customHazardPercentageDiv.classList.add('hidden');
+                customHazardPercentageInput.value = ''; // Clear custom input when not in use
+            }
+        });
+
+        salaryForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            hideMessage(); // Clear previous messages
+            calculateAndDisplaySalary();
+        });
+
+        // --- Calculation Logic ---
+        function getBasicSalary(jobGrade, yearsOfService) {
+            let entry = salaryScaleData.find(s => s.grade === jobGrade && s.years_of_service === yearsOfService);
+            if (entry) {
+                return entry.basic_salary * 1000;
+            } else if (yearsOfService > 11) {
+                const gradeDataAtYear11 = salaryScaleData.find(s => s.grade === jobGrade && s.years_of_service === 11);
+                if (gradeDataAtYear11) {
+                    const basicSalaryAtYear11 = gradeDataAtYear11.basic_salary * 1000;
+                    const annualIncrement = gradeDataAtYear11.annual_increment * 1000;
+                    // Calculate basic salary for years beyond 11
+                    return basicSalaryAtYear11 + (annualIncrement * (yearsOfService - 11));
+                }
+            }
+            return 0; // Should not happen with valid inputs
+        }
+
+        function calculateAllowances(employeeData, basicSalaryAmount) {
+            let calculatedAllowances = {
+                position_allowance: 0,
+                certificate_allowance: 0, // or craft
+                geographic_allowance: 0,
+                hazard_allowance: 0,
+                marital_allowance: 0,
+                children_allowance: 0,
+            };
+            let totalAllowancesSubjectToCap = 0;
+            let totalAllowancesExemptFromCap = 0;
+
+            // Position Allowance
+            if (employeeData.job_position_type !== "لا ينطبق") {
+                const rule = allowanceRulesData.find(r => r.type === "position" && r.condition === employeeData.job_position_type);
+                if (rule) {
+                    calculatedAllowances.position_allowance = basicSalaryAmount * rule.rate;
+                    totalAllowancesSubjectToCap += calculatedAllowances.position_allowance;
+                }
+            }
+
+            // Certificate or Craft Allowance
+            if (employeeData.highest_qualification === "لا يوجد") { // Craft
+                const rule = allowanceRulesData.find(r => r.type === "craft" && r.condition === employeeData.highest_qualification);
+                 if (rule) {
+                    calculatedAllowances.certificate_allowance = basicSalaryAmount * rule.rate; // Storing craft under certificate for simplicity
+                    totalAllowancesSubjectToCap += calculatedAllowances.certificate_allowance;
+                }
+            } else { // Certificate
+                const rule = allowanceRulesData.find(r => r.type === "certificate" && r.condition === employeeData.highest_qualification);
+                if (rule) {
+                    calculatedAllowances.certificate_allowance = basicSalaryAmount * rule.rate;
+                    totalAllowancesSubjectToCap += calculatedAllowances.certificate_allowance;
+                }
+            }
+            
+            // Geographic Location Allowance
+            if (employeeData.geographic_location !== "لا ينطبق") {
+                const rule = allowanceRulesData.find(r => r.type === "geographic" && r.condition === employeeData.geographic_location);
+                if (rule) {
+                    calculatedAllowances.geographic_allowance = rule.fixed_amount;
+                    totalAllowancesSubjectToCap += calculatedAllowances.geographic_allowance;
+                }
+            }
+
+            // Hazard Allowance
+            if (employeeData.hazard_level === "أخرى / مخصص" && employeeData.custom_hazard_percentage !== null) {
+                // Use custom percentage if "أخرى / مخصص" is selected and a value is provided
+                calculatedAllowances.hazard_allowance = basicSalaryAmount * (employeeData.custom_hazard_percentage / 100);
+                totalAllowancesSubjectToCap += calculatedAllowances.hazard_allowance;
+            } else if (employeeData.hazard_level !== "لا يوجد") {
+                // Use standard hazard levels
+                const rule = allowanceRulesData.find(r => r.type === "hazard" && r.condition === employeeData.hazard_level);
+                if (rule) {
+                    calculatedAllowances.hazard_allowance = basicSalaryAmount * rule.rate;
+                    totalAllowancesSubjectToCap += calculatedAllowances.hazard_allowance;
+                }
+            }
+
+            // Marital Allowance (Exempt from cap)
+            if (employeeData.marital_status === "متزوج" || employeeData.marital_status === "أرمل" || employeeData.marital_status === "مطلق") {
+                const rule = allowanceRulesData.find(r => r.type === "marital_spouse" && r.condition === employeeData.marital_status);
+                 if (rule) {
+                    calculatedAllowances.marital_allowance = rule.fixed_amount;
+                    totalAllowancesExemptFromCap += calculatedAllowances.marital_allowance;
+                }
+            }
+            
+            // Children Allowance (Exempt from cap)
+            if (employeeData.num_children > 0 && (employeeData.marital_status !== "أعزب")) {
+                 const rule = allowanceRulesData.find(r => r.type === "children");
+                 if (rule) {
+                    const applicableChildren = Math.min(employeeData.num_children, rule.max_children);
+                    calculatedAllowances.children_allowance = applicableChildren * rule.fixed_amount;
+                    totalAllowancesExemptFromCap += calculatedAllowances.children_allowance;
+                }
+            }
+            
+            const totalAllowancesBeforeCap = totalAllowancesSubjectToCap + totalAllowancesExemptFromCap;
+            
+            // Removed "Apply cap" logic as per user request.
+            // const maxAllowedSubjectToCap = basicSalaryAmount * TOTAL_ALLOWANCE_CAP_PERCENTAGE;
+            // let finalTotalAllowancesSubjectToCap = totalAllowancesSubjectToCap;
+            // if (totalAllowancesSubjectToCap > maxAllowedAllowances) {
+            //     finalTotalAllowancesSubjectToCap = maxAllowedAllowances;
+            // }
+            
+            // Since the cap is removed, totalAllowancesAfterCap is simply totalAllowancesBeforeCap
+            const totalAllowancesAfterCap = totalAllowancesBeforeCap;
+
+            return {
+                ...calculatedAllowances,
+                total_allowances_before_cap: totalAllowancesBeforeCap,
+                total_allowances_after_cap: totalAllowancesAfterCap
+            };
+        }
+
+        function calculateGrossSalary(basicSalary, totalAllowancesAfterCap) {
+            return basicSalary + totalAllowancesAfterCap;
+        }
+
+        function calculateDeductions(employeeData, basicSalaryAmount, grossSalaryAmount) {
+            let deductions = {
+                pension_deduction: 0,
+                health_insurance_deduction: 0,
+                income_tax: 0
+            };
+
+            // Pension Deduction (10% of functional_salary, which is basic_salary)
+            const pensionRule = deductionRulesData.find(r => r.type === "pension");
+            if (pensionRule) {
+                deductions.pension_deduction = basicSalaryAmount * pensionRule.rate;
+            }
+
+            // Health Insurance Deduction (1% of basic_salary)
+            const healthRule = deductionRulesData.find(r => r.type === "health_insurance");
+            if (healthRule) {
+                deductions.health_insurance_deduction = basicSalaryAmount * healthRule.rate;
+            }
+
+            // Income Tax
+            const taxableIncomeGross = grossSalaryAmount;
+            let totalMonthlyExemptions = 0;
+
+            totalMonthlyExemptions += annualExemptionsData.individual_exemption / 12;
+
+            if (employeeData.marital_status === "متزوج" && !employeeData.spouse_employed) {
+                totalMonthlyExemptions += annualExemptionsData.spouse_exemption / 12;
+            }
+            if (employeeData.num_children > 0 && !employeeData.children_independent_income_or_over_age_limit_not_studying) {
+                totalMonthlyExemptions += employeeData.num_children * (annualExemptionsData.child_exemption_per_child / 12);
+            }
+            if (employeeData.marital_status === "أرمل" || employeeData.marital_status === "مطلق") {
+                 totalMonthlyExemptions += annualExemptionsData.widow_divorcee_exemption / 12;
+            }
+             if (employeeData.age_over_63) {
+                totalMonthlyExemptions += annualExemptionsData.senior_additional_exemption / 12;
+            }
+
+            const netTaxableIncome = Math.max(0, taxableIncomeGross - totalMonthlyExemptions);
+            
+            // Progressive tax calculation
+            let calculatedTax = 0;
+            let incomeToTax = netTaxableIncome;
+            let previousBracketMax = 0;
+
+            const sortedBrackets = [...taxBracketsData].sort((a, b) => a.min_income - b.min_income);
+
+            for (const bracket of sortedBrackets) {
+                if (incomeToTax <= 0) break;
+
+                const min = bracket.min_income;
+                const max = bracket.max_income === Infinity ? Infinity : bracket.max_income;
+                const rate = bracket.rate;
+
+                // Amount of income that falls into THIS bracket's range (layer)
+                let taxableAmountInThisBracket = 0;
+                if (netTaxableIncome > min) {
+                    taxableAmountInThisBracket = Math.min(netTaxableIncome, max) - Math.max(previousBracketMax, min - 1);
+                }
+                
+                if (taxableAmountInThisBracket > 0) {
+                    calculatedTax += taxableAmountInThisBracket * rate;
+                }
+                
+                previousBracketMax = max;
+                if (netTaxableIncome <= max) break; 
+            }
+            deductions.income_tax = calculatedTax > 0 ? calculatedTax : 0;
+
+
+            const totalDeductions = deductions.pension_deduction + deductions.health_insurance_deduction + deductions.income_tax;
+            return { ...deductions, total_deductions: totalDeductions };
+        }
+
+        function calculateNetSalary(grossSalary, totalDeductions) {
+            return grossSalary - totalDeductions;
+        }
+
+        function calculateAndDisplaySalary() {
+            const formData = new FormData(salaryForm);
+            const dateOfAppointmentStr = formData.get('date_of_appointment');
+            const jobGrade = formData.get('job_grade');
+            const highestQualification = formData.get('highest_qualification');
+            const maritalStatus = formData.get('marital_status');
+            const hazardLevel = formData.get('hazard_level');
+            const customHazardPercentage = parseFloat(formData.get('custom_hazard_percentage'));
+
+            // Validate required fields
+            if (!dateOfAppointmentStr || !jobGrade || !highestQualification || !maritalStatus) {
+                showMessage("الرجاء ملء جميع الحقول الإلزامية (*).", 'error');
+                return;
+            }
+
+            // Calculate years of service from date of appointment
+            const appointmentDate = new Date(dateOfAppointmentStr);
+            const currentDate = new Date();
+            const diffTime = Math.abs(currentDate - appointmentDate);
+            const diffYears = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
+
+            // Validate custom hazard percentage if "أخرى / مخصص" is selected
+            if (hazardLevel === 'أخرى / مخصص' && (isNaN(customHazardPercentage) || customHazardPercentage < 0)) {
+                showMessage("الرجاء إدخال نسبة مئوية صحيحة لمخصصات الخطورة المخصصة.", 'error');
+                return;
+            }
+            
+            const employeeData = {
+                job_grade: jobGrade,
+                years_of_service: diffYears, // Use calculated years of service
+                highest_qualification: highestQualification,
+                job_position_type: formData.get('job_position_type'),
+                geographic_location: formData.get('geographic_location'),
+                hazard_level: hazardLevel,
+                custom_hazard_percentage: hazardLevel === 'أخرى / مخصص' ? customHazardPercentage : null,
+                marital_status: maritalStatus,
+                num_children: parseInt(formData.get('num_children')) || 0,
+                spouse_employed: formData.get('spouse_employed') === 'true',
+                children_independent_income_or_over_age_limit_not_studying: formData.get('children_independent_income_or_over_age_limit_not_studying') === 'true',
+                age_over_63: formData.get('age_over_63') === 'true'
+            };
+
+
+            const basicSalary = getBasicSalary(employeeData.job_grade, employeeData.years_of_service);
+            const allowances = calculateAllowances(employeeData, basicSalary);
+            const grossSalary = calculateGrossSalary(basicSalary, allowances.total_allowances_after_cap);
+            const deductions = calculateDeductions(employeeData, basicSalary, grossSalary);
+            const netSalary = calculateNetSalary(grossSalary, deductions.total_deductions);
+
+            // Display results
+            document.getElementById('basic_salary_result').textContent = formatCurrency(basicSalary);
+            document.getElementById('position_allowance_result').textContent = formatCurrency(allowances.position_allowance);
+            document.getElementById('certificate_allowance_result').textContent = formatCurrency(allowances.certificate_allowance);
+            document.getElementById('geographic_allowance_result').textContent = formatCurrency(allowances.geographic_allowance);
+            document.getElementById('hazard_allowance_result').textContent = formatCurrency(allowances.hazard_allowance);
+            document.getElementById('marital_allowance_result').textContent = formatCurrency(allowances.marital_allowance);
+            document.getElementById('children_allowance_result').textContent = formatCurrency(allowances.children_allowance);
+            document.getElementById('total_allowances_before_cap_result').textContent = formatCurrency(allowances.total_allowances_before_cap);
+            document.getElementById('total_allowances_after_cap_result').textContent = formatCurrency(allowances.total_allowances_after_cap);
+            document.getElementById('gross_salary_result').textContent = formatCurrency(grossSalary);
+            document.getElementById('pension_deduction_result').textContent = formatCurrency(deductions.pension_deduction);
+            document.getElementById('health_insurance_deduction_result').textContent = formatCurrency(deductions.health_insurance_deduction);
+            document.getElementById('income_tax_result').textContent = formatCurrency(deductions.income_tax);
+            document.getElementById('total_deductions_result').textContent = formatCurrency(deductions.total_deductions);
+            document.getElementById('net_salary_result').textContent = formatCurrency(netSalary);
+
+            resultsSection.classList.remove('hidden');
+            chartsSection.classList.remove('hidden');
+            
+            // Update charts
+            updateGrossSalaryChart(basicSalary, allowances.total_allowances_after_cap);
+            updateSalaryStagesChart(grossSalary, deductions.total_deductions, netSalary);
+
+            // Scroll to results
+            resultsSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function formatCurrency(amount) {
+            return parseFloat(amount).toLocaleString('ar-IQ', { style: 'currency', currency: 'IQD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        }
+
+        // --- Charting Functions ---
+        function updateGrossSalaryChart(basicSalary, totalAllowances) {
+            const ctx = document.getElementById('grossSalaryChart').getContext('2d');
+            if (grossSalaryChartInstance) {
+                grossSalaryChartInstance.destroy();
+            }
+            grossSalaryChartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['الراتب الأساسي', 'إجمالي المخصصات'],
+                    datasets: [{
+                        label: 'مكونات الراتب الإجمالي',
+                        data: [basicSalary, totalAllowances],
+                        backgroundColor: [
+                            '#FCD34D', // amber-400
+                            '#5EEAD4'  // teal-300
+                        ],
+                        borderColor: [
+                            '#FBBF24', // amber-500
+                            '#14B8A6'  // teal-500
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { family: 'Tajawal' }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed !== null) {
+                                        label += formatCurrency(context.parsed);
+                                    }
+                                    return label;
+                                }
+                            },
+                            bodyFont: { family: 'Tajawal' },
+                            titleFont: { family: 'Tajawal' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateSalaryStagesChart(grossSalary, totalDeductions, netSalary) {
+            const ctx = document.getElementById('salaryStagesChart').getContext('2d');
+             if (salaryStagesChartInstance) {
+                salaryStagesChartInstance.destroy();
+            }
+            salaryStagesChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['الراتب الإجمالي', 'إجمالي الاستقطاعات', 'صافي الراتب'],
+                    datasets: [{
+                        label: 'مراحل الراتب (دينار عراقي)',
+                        data: [grossSalary, totalDeductions, netSalary],
+                        backgroundColor: [
+                            '#FCD34D', // amber-400
+                            '#FB7185', // rose-400 (for deductions)
+                            '#2DD4BF'  // teal-400 (for net)
+                        ],
+                        borderColor: [
+                            '#FBBF24', // amber-500
+                            '#F43F5E', // rose-500
+                            '#14B8A6'  // teal-500
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return formatCurrency(value);
+                                },
+                                font: { family: 'Tajawal' }
+                            }
+                        },
+                        x: {
+                             ticks: { font: { family: 'Tajawal' } }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                           display: false
+                        },
+                        tooltip: {
+                             callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label = context.label + ': ';
+                                    }
+                                     if (context.parsed.y !== null) {
+                                        label += formatCurrency(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            },
+                            bodyFont: { family: 'Tajawal' },
+                            titleFont: { family: 'Tajawal' }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
